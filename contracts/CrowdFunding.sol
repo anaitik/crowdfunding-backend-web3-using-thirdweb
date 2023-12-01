@@ -1,6 +1,15 @@
+// CrowdFunding.sol
+// SPDX-License-Identifier: MIT
 pragma solidity ^0.8.9;
 
-contract CrowdFunding {
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "./MyToken.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+contract CrowdFunding is Ownable {
+    using SafeERC20 for IERC20;
+
     struct Campaign {
         address owner;
         string title;
@@ -16,16 +25,12 @@ contract CrowdFunding {
     mapping(uint256 => Campaign) public campaigns;
 
     uint256 public numberOfCampaigns = 0;
-    address public owner;
     bool public paused;
 
-    modifier onlyOwner(uint256 _id) {
-        if (_id != 0) {
-            require(msg.sender == campaigns[_id].owner, "Only the owner can perform this action");
-        } else {
-            require(msg.sender == owner, "Only the owner can perform this action");
-        }
-        _;
+    MyToken public token;
+
+    constructor() {
+        token = new MyToken();
     }
 
     modifier whenNotPaused() {
@@ -36,10 +41,6 @@ contract CrowdFunding {
     event CampaignCreated(address indexed owner, uint256 indexed campaignId, string title, uint256 target, uint256 deadline);
     event DonationMade(address indexed donator, uint256 indexed campaignId, uint256 amount);
     event RefundMade(address indexed donator, uint256 indexed campaignId, uint256 amountRefunded);
-
-    constructor() {
-        owner = msg.sender;
-    }
 
     function createCampaign(string memory _title, string memory _description, uint256 _target, uint256 _deadline, string memory _image) public whenNotPaused returns (uint256) {
         Campaign storage campaign = campaigns[numberOfCampaigns];
@@ -69,6 +70,9 @@ contract CrowdFunding {
         campaign.donators.push(msg.sender);
         campaign.donations.push(amount);
 
+        // Mint tokens and transfer to the donor
+        token.mint(msg.sender, amount);
+
         (bool sent,) = payable(campaign.owner).call{value: amount}("");
 
         if(sent) {
@@ -92,40 +96,53 @@ contract CrowdFunding {
         return allCampaigns;
     }
 
-    function refund(uint256 _id) public onlyOwner(_id) {
+    function refund(uint256 _id) public onlyOwner {
         Campaign storage campaign = campaigns[_id];
 
         require(block.timestamp >= campaign.deadline, "The deadline has not been reached yet");
 
         if (campaign.amountCollected < campaign.target) {
             for (uint i = 0; i < campaign.donators.length; i++) {
-                payable(campaign.donators[i]).transfer(campaign.donations[i]);
-                emit RefundMade(campaign.donators[i], _id, campaign.donations[i]);
+                address donator = campaign.donators[i];
+                uint256 amount = campaign.donations[i];
+
+                // Transfer tokens back to the donator
+                token.transfer(donator, amount);
+
+                // Transfer ether back to the donator
+                payable(donator).transfer(amount);
+
+                emit RefundMade(donator, _id, amount);
             }
         }
     }
 
-    function extendDeadline(uint256 _id, uint256 _newDeadline) public onlyOwner(_id) {
+    function extendDeadline(uint256 _id, uint256 _newDeadline) public onlyOwner {
         require(block.timestamp < campaigns[_id].deadline, "The current deadline has already passed");
         require(_newDeadline > campaigns[_id].deadline, "New deadline should be after the current deadline");
 
         campaigns[_id].deadline = _newDeadline;
     }
 
-    function withdrawFunds(uint256 _id) public onlyOwner(_id) {
+    function withdrawFunds(uint256 _id) public onlyOwner {
         Campaign storage campaign = campaigns[_id];
 
         require(campaign.amountCollected >= campaign.target, "Target not met yet");
 
+        // Transfer tokens to the campaign owner
+        token.transfer(campaign.owner, campaign.amountCollected);
+
+        // Transfer ether to the campaign owner
         payable(campaign.owner).transfer(campaign.amountCollected);
+
         campaign.amountCollected = 0;
     }
 
-    function pause() public onlyOwner(0) {
+    function pause() public onlyOwner {
         paused = true;
     }
 
-    function resume() public onlyOwner(0) {
+    function resume() public onlyOwner {
         paused = false;
     }
 }
