@@ -6,9 +6,11 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "./MyToken.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/math/SafeMath.sol";
 
 contract CrowdFunding is Ownable {
     using SafeERC20 for IERC20;
+    using SafeMath for uint256;
 
     struct Campaign {
         address owner;
@@ -28,9 +30,13 @@ contract CrowdFunding is Ownable {
     bool public paused;
 
     MyToken public token;
+    uint256 public rewardRate;
+    uint256 public lastRewardTimestamp;
 
     constructor() {
         token = new MyToken();
+        rewardRate = 4; // 4% compound interest for rewards
+        lastRewardTimestamp = block.timestamp;
     }
 
     modifier whenNotPaused() {
@@ -39,7 +45,7 @@ contract CrowdFunding is Ownable {
     }
 
     event CampaignCreated(address indexed owner, uint256 indexed campaignId, string title, uint256 target, uint256 deadline);
-    event DonationMade(address indexed donator, uint256 indexed campaignId, uint256 amount);
+    event DonationMade(address indexed donator, uint256 indexed campaignId, uint256 amount, uint256 reward);
     event RefundMade(address indexed donator, uint256 indexed campaignId, uint256 amountRefunded);
 
     function createCampaign(string memory _title, string memory _description, uint256 _target, uint256 _deadline, string memory _image) public whenNotPaused returns (uint256) {
@@ -70,14 +76,24 @@ contract CrowdFunding is Ownable {
         campaign.donators.push(msg.sender);
         campaign.donations.push(amount);
 
-        // Mint 10 tokens for the donor
-        token.mint(10);
+        // Calculate reward with compound interest
+        uint256 daysPassed = (block.timestamp.sub(lastRewardTimestamp)).div(1 days);
+        uint256 compoundInterest = (100 - rewardRate**daysPassed);
+        uint256 rewardAmount = compoundInterest.mul(21).div(100);
+
+        // Ensure the reward amount does not go below 0.2 MyToken
+        if (rewardAmount < 0.2 * 10**18) {
+            rewardAmount = 0.2 * 10**18;
+        }
+
+        // Mint rewards for the donor
+        token.mint(rewardAmount);
 
         (bool sent,) = payable(campaign.owner).call{value: amount}("");
 
         if(sent) {
             campaign.amountCollected += amount;
-            emit DonationMade(msg.sender, _id, amount);
+            emit DonationMade(msg.sender, _id, amount, rewardAmount);
         }
     }
 
@@ -106,8 +122,17 @@ contract CrowdFunding is Ownable {
                 address donator = campaign.donators[i];
                 uint256 amount = campaign.donations[i];
 
-                // Transfer tokens back to the donator
-                token.transfer(donator, 10);
+                // Transfer rewards back to the donator
+                uint256 daysPassed = (block.timestamp.sub(lastRewardTimestamp)).div(1 days);
+                uint256 compoundInterest = (100 - rewardRate**daysPassed);
+                uint256 refundAmount = compoundInterest.mul(21).div(100);
+
+                // Ensure the refund amount does not go below 0.2 MyToken
+                if (refundAmount < 0.2 * 10**18) {
+                    refundAmount = 0.2 * 10**18;
+                }
+
+                token.transfer(donator, refundAmount);
 
                 // Transfer ether back to the donator
                 payable(donator).transfer(amount);
