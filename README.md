@@ -9,6 +9,7 @@ ps. goerli eth is shit
 the website contains function of decentralised management and  Apis for the website.
 MyToken is an ERC self burn ERC20 token which has been implemented with a total supply of 10 decillion nad burn rate of 10% compounding daily
 until the available token reaches 21 million(just like bitcoin ; )
+the token has been integrated to the website and is given as reward to encourage donations
 now the staking feature as well as swapping of MyToken is also implemented  and reward function for every donation done on a compaign
 
 
