@@ -71,7 +71,7 @@ contract CrowdFunding is Ownable {
         campaign.donations.push(amount);
 
         // Mint 10 tokens for the donor
-        token.mint(msg.sender, 10);
+        token.mint(10);
 
         (bool sent,) = payable(campaign.owner).call{value: amount}("");
 
